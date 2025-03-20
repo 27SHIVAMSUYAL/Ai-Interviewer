@@ -2,27 +2,23 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
+import axios from "axios";
+import "react-resizable/css/styles.css";
 
 const boilerplateCodes = {
-  javascript: `// JavaScript Boilerplate
+    javascript: `// JavaScript Boilerplate
 function sayHello() {
   console.log("Hello, World!");
 }
 sayHello();`,
 
-  typescript: `// TypeScript Boilerplate
-function sayHello(name: string): void {
-  console.log(\`Hello, \${name}!\`);
-}
-sayHello("World");`,
-
-  python: `# Python Boilerplate
+    python: `# Python Boilerplate
 def say_hello():
     print("Hello, World!")
 
 say_hello()`,
 
-  cpp: `// C++ Boilerplate
+    cpp: `// C++ Boilerplate
 #include <iostream>
 using namespace std;
 
@@ -30,200 +26,246 @@ int main() {
     cout << "Hello, World!" << endl;
     return 0;
 }`,
+};
 
-  html: `<!-- HTML Boilerplate -->
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
-</head>
-<body>
-    <h1>Hello, World!</h1>
-</body>
-</html>`,
-
-  css: `/* CSS Boilerplate */
-body {
-    font-family: Arial, sans-serif;
-    background-color: #f0f0f0;
-    text-align: center;
-}
-h1 {
-    color: blue;
-}`,
+const languageMap = {
+    javascript: 63, // JavaScript
+    python: 71, // Python
+    cpp: 54, // C++
 };
 
 const MonacoEditor = () => {
-  const [language, setLanguage] = useState("javascript");
-  const [theme, setTheme] = useState("vs-dark");
-  const [fontSize, setFontSize] = useState(14);
-  const [editorWidth, setEditorWidth] = useState("70vw");
-  const [code, setCode] = useState(boilerplateCodes[language]);
-  const resizerRef = useRef(null);
+    const [language, setLanguage] = useState("javascript");
+    const [theme, setTheme] = useState("vs-dark");
+    const [fontSize, setFontSize] = useState(14);
+    const [code, setCode] = useState(boilerplateCodes[language]);
+    const [output, setOutput] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [editorWidth, setEditorWidth] = useState(800);
+    const editorRef = useRef(null);
+    const isDraggingRef = useRef(false);
 
-  useEffect(() => {
-    const savedCode = localStorage.getItem(`monaco-code-${language}`);
-    setCode(savedCode || boilerplateCodes[language]);
-  }, [language]);
+    useEffect(() => {
+        const savedCode = localStorage.getItem(`monaco-code-${language}`);
+        setCode(savedCode || boilerplateCodes[language]);
+    }, [language]);
 
-  useEffect(() => {
-    localStorage.setItem(`monaco-code-${language}`, code);
-  }, [code, language]);
+    useEffect(() => {
+        localStorage.setItem(`monaco-code-${language}`, code);
+    }, [code, language]);
 
-  // Handle Drag to Resize
-  useEffect(() => {
-    const resizer = resizerRef.current;
-    if (!resizer) return;
+    const encodeBase64 = (str) => {
+        return btoa(unescape(encodeURIComponent(str)));
+    };
+
+    const runCode = async () => {
+        setOutput("");
+        setLoading(true);
+
+        const apiKey = process.env.NEXT_PUBLIC_JUDGE0_API_KEY;
+        if (!apiKey) {
+            setOutput("Error: API key is missing!");
+            setLoading(false);
+            return;
+        }
+
+        const submissionData = {
+            source_code: encodeBase64(code),
+            language_id: languageMap[language],
+            stdin: encodeBase64(""),
+            expected_output: null,
+            base64_encoded: "true",
+        };
+
+        try {
+            const response = await axios.post(
+                "https://judge0-ce.p.rapidapi.com/submissions",
+                submissionData,
+                {
+                    params: { base64_encoded: "true", fields: "*" },
+                    headers: {
+                        "x-rapidapi-key": apiKey,
+                        "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
+
+            const { token } = response.data;
+            if (!token) {
+                setOutput("Error: No token received!");
+                setLoading(false);
+                return;
+            }
+
+            let result = null;
+            while (!result || result.status.id <= 2) {
+                await new Promise((res) => setTimeout(res, 1500));
+                result = await axios.get(
+                    `https://judge0-ce.p.rapidapi.com/submissions/${token}`,
+                    {
+                        params: { base64_encoded: "true", fields: "*" },
+                        headers: {
+                            "x-rapidapi-key": apiKey,
+                            "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+                        },
+                    }
+                );
+                result = result.data;
+            }
+
+            setOutput(atob(result.stdout || "No Output"));
+        } catch (error) {
+            console.error(error);
+            setOutput("Error: Unable to execute the code!");
+        }
+
+        setLoading(false);
+    };
+
+    // Handle Dragging to Resize Editor
+    const startDrag = () => {
+        isDraggingRef.current = true;
+    };
+
+    const stopDrag = () => {
+        isDraggingRef.current = false;
+    };
 
     const handleMouseMove = (event) => {
-      const newWidth = Math.min(Math.max(event.clientX, 300), window.innerWidth - 100);
-      setEditorWidth(`${newWidth}px`);
+        if (isDraggingRef.current) {
+            const newWidth = event.clientX - editorRef.current.getBoundingClientRect().left;
+            if (newWidth >= 500 && newWidth <= 1200) {
+                setEditorWidth(newWidth);
+            }
+        }
     };
 
-    const handleMouseUp = () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
+    useEffect(() => {
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("mouseup", stopDrag);
+        return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", stopDrag);
+        };
+    }, []);
 
-    const handleMouseDown = () => {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-    };
+    return (
+        <div style={{ width: "90%", paddingTop: "20px" }}>
+            {/* Controls - Now Responsive to Editor Width */}
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "10px",
+                    background: theme === "vs-dark" ? "#282c34" : "#f5f5f5",
+                    padding: "10px",
+                    borderRadius: "5px",
+                    color: theme === "vs-dark" ? "#fff" : "#000",
+                    width: editorWidth, // Adjust with editor width
+                }}
+            >
+                <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    style={{
+                        padding: "5px",
+                        borderRadius: "4px",
+                        background: theme === "vs-dark" ? "#444" : "#fff",
+                        color: theme === "vs-dark" ? "#fff" : "#000",
+                        border: "1px solid #ccc",
+                    }}
+                >
+                    {Object.keys(boilerplateCodes).map((lang) => (
+                        <option key={lang} value={lang}>
+                            {lang.toUpperCase()}
+                        </option>
+                    ))}
+                </select>
 
-    resizer.addEventListener("mousedown", handleMouseDown);
-    return () => {
-      resizer.removeEventListener("mousedown", handleMouseDown);
-    };
-  }, []);
+                <button
+                    onClick={() => setTheme(theme === "vs-dark" ? "light" : "vs-dark")}
+                    style={{
+                        padding: "5px 10px",
+                        borderRadius: "4px",
+                        background: theme === "vs-dark" ? "#444" : "#fff",
+                        color: theme === "vs-dark" ? "#fff" : "#000",
+                        border: "1px solid #ccc",
+                    }}
+                >
+                    {theme === "vs-dark" ? "☀️ Light" : "🌙 Dark"}
+                </button>
 
-  return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      {/* Editor Container */}
-      <div
-        style={{
-          width: editorWidth,
-          height: "100vh",
-          backgroundColor: theme === "vs-dark" ? "#1e1e1e" : "#fff",
-          borderRight: "3px solid #ccc",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {/* Toolbar */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "10px",
-            background: theme === "vs-dark" ? "#282c34" : "#f5f5f5",
-          }}
-        >
-          {/* Language Selector */}
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            style={{
-              padding: "6px",
-              borderRadius: "5px",
-              fontSize: "14px",
-              color: theme === "vs-dark" ? "#fff" : "#000",
-              background: theme === "vs-dark" ? "#444" : "#fff",
-            }}
-          >
-            {Object.keys(boilerplateCodes).map((lang) => (
-              <option key={lang} value={lang}>
-                {lang.toUpperCase()}
-              </option>
-            ))}
-          </select>
+                <input
+                    type="number"
+                    min="10"
+                    max="30"
+                    value={fontSize}
+                    onChange={(e) => setFontSize(Number(e.target.value))}
+                    style={{
+                        width: "50px",
+                        padding: "5px",
+                        borderRadius: "4px",
+                        border: "1px solid #ccc",
+                    }}
+                />
 
-          {/* Theme Toggle Button */}
-          <button
-            onClick={() => setTheme(theme === "vs-dark" ? "light" : "vs-dark")}
-            style={{
-              padding: "8px",
-              borderRadius: "5px",
-              cursor: "pointer",
-              background: theme === "vs-dark" ? "#444" : "#ddd",
-              color: theme === "vs-dark" ? "#fff" : "#000",
-              fontSize: "14px",
-            }}
-          >
-            {theme === "vs-dark" ? "☀️ Light" : "🌙 Dark"}
-          </button>
+                <button
+                    onClick={runCode}
+                    disabled={loading}
+                    style={{
+                        padding: "8px 12px",
+                        backgroundColor: loading ? "#999" : "#007bff",
+                        color: "#fff",
+                        borderRadius: "5px",
+                        border: "none",
+                        cursor: loading ? "not-allowed" : "pointer",
+                    }}
+                >
+                    {loading ? "Running..." : "Run Code"}
+                </button>
+            </div>
 
-          {/* Font Size Adjuster */}
-          <input
-            type="number"
-            min="10"
-            max="30"
-            value={fontSize}
-            onChange={(e) => setFontSize(Number(e.target.value))}
-            style={{
-              padding: "6px",
-              width: "50px",
-              textAlign: "center",
-              fontSize: "14px",
-              borderRadius: "5px",
-              color: theme === "vs-dark" ? "#fff" : "#000",
-              background: theme === "vs-dark" ? "#444" : "#fff",
-            }}
-          />
+            {/* Resizable Editor */}
+            <div
+                ref={editorRef}
+                style={{
+                    width: editorWidth,
+                    height: "400px",
+                    border: "1px solid #ccc",
+                    position: "relative",
+                }}
+            >
+                <Editor
+                    height="100%"
+                    language={language}
+                    theme={theme}
+                    value={code}
+                    onChange={(value) => setCode(value || "")}
+                    options={{ fontSize, automaticLayout: true }}
+                />
+                <div
+                    onMouseDown={startDrag}
+                    style={{
+                        position: "absolute",
+                        right: 0,
+                        top: 0,
+                        width: "10px",
+                        height: "100%",
+                        cursor: "ew-resize",
+                        backgroundColor: "transparent",
+                    }}
+                />
+            </div>
+
+            {/* Output */}
+            <pre style={{ color: "black", marginTop: "15px", padding: "10px", background: "#eee", borderRadius: "5px" }}>
+                {output}
+            </pre>
+
         </div>
-
-        {/* Monaco Editor */}
-        <div style={{ flex: 1 }}>
-          <Editor
-            height="100%"
-            language={language}
-            theme={theme}
-            value={code}
-            onChange={(value) => setCode(value || "")}
-            options={{
-              minimap: { enabled: true },
-              fontSize: fontSize,
-              automaticLayout: true,
-              scrollBeyondLastLine: false,
-              wordWrap: "on",
-              formatOnType: true,
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Resizer Bar */}
-      <div
-        ref={resizerRef}
-        style={{
-          width: "5px",
-          cursor: "ew-resize",
-          backgroundColor: "#aaa",
-          height: "100vh",
-          zIndex: 10,
-        }}
-      ></div>
-
-      {/* Right Side Content (Can Add More Features Here) */}
-      <div style={{ flex: 1, padding: "20px", overflowY: "auto" }}>
-        <h2>📜 Code Preview</h2>
-        <pre
-          style={{
-            background: theme === "vs-dark" ? "#222" : "#f4f4f4",
-            padding: "10px",
-            borderRadius: "5px",
-            color: theme === "vs-dark" ? "#fff" : "#000",
-            fontSize: `${fontSize}px`,
-            whiteSpace: "pre-wrap",
-          }}
-        >
-          {code}
-        </pre>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default MonacoEditor;
