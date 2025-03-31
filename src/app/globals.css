@@ -1,1 +1,18 @@
 @import "tailwindcss";
+/* globals.css */
+body {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: Arial, sans-serif;
+  }
+  
+  canvas {
+    border-radius: 10px;
+  }
+  
+  p {
+    font-size: 1.2rem;
+    font-weight: bold;
+  }
+  
