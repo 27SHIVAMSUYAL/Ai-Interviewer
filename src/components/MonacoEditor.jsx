@@ -4,45 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import axios from "axios";
 import "react-resizable/css/styles.css";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-
-
-import { db } from '../firebaseConfig';  // Adjust the path accordingly
+import { db, auth } from '../firebaseConfig';  // Import auth as well
 import { collection, getDocs } from "firebase/firestore";
-
-
-// Function to fetch all questions
-const fetchQuestions = async () => {
-    try {
-        // Reference to the 'questions' collection
-        const querySnapshot = await getDocs(collection(db, "questions"));
-
-        // Array to store all statements
-        const questions = [];
-
-        // Loop through each document
-        querySnapshot.forEach((doc) => {
-            questions.push({ id: doc.id, ...doc.data() });
-        });
-
-        // Log or return the result
-        console.log("All Questions:", questions);
-        return questions;
-
-    } catch (error) {
-        console.error("Error fetching questions:", error);
-    }
-};
-
-
-
-
-// Stop Interview Function (Optional)
-const stopInterview = () => {
-    clearInterval(interviewInterval.current);
-    setOutput((prevOutput) => `${prevOutput}\n\nInterview Stopped.`);
-    console.log("Interview stopped");
-};
+import { onAuthStateChanged } from "firebase/auth";
 
 
 const boilerplateCodes = {
@@ -68,14 +34,8 @@ int main() {
 }`,
 };
 
-//////////////////////////////////////////
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-
 const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-thinking-exp-01-21" });
-
-////////////////////////////////////////////////////////////////
-
 
 const MonacoEditor = () => {
     const [language, setLanguage] = useState("javascript");
@@ -91,6 +51,141 @@ const MonacoEditor = () => {
     const [questions, setQuestions] = useState([]);
     const [selectedQuestion, setSelectedQuestion] = useState(null);
     const interviewInterval = useRef(null);
+    const [user, setUser] = useState(null);
+    const [authLoading, setAuthLoading] = useState(true);
+
+    // Function to fetch all questions
+    const fetchQuestions = async () => {
+        try {
+            console.log("Starting to fetch questions...");
+            console.log("Database instance:", db);
+            console.log("Current user:", user);
+            
+            if (!user) {
+                console.log("No user authenticated, using fallback questions");
+                // Return fallback questions if no user is authenticated
+                const fallbackQuestions = [
+                    {
+                        id: "fallback-1",
+                        name: "Two Sum",
+                        statement: "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.",
+                        difficulty: "Easy",
+                        category: "Arrays"
+                    },
+                    {
+                        id: "fallback-2",
+                        name: "Reverse String",
+                        statement: "Write a function that reverses a string. The input string is given as an array of characters s.",
+                        difficulty: "Easy",
+                        category: "Strings"
+                    },
+                    {
+                        id: "fallback-3",
+                        name: "Valid Parentheses",
+                        statement: "Given a string s containing just the characters '(', ')', '{', '}', '[' and ']', determine if the input string is valid.",
+                        difficulty: "Easy",
+                        category: "Stack"
+                    }
+                ];
+                console.log("Using fallback questions:", fallbackQuestions);
+                return fallbackQuestions;
+            }
+            
+            // Reference to the 'questions' collection
+            const questionsCollection = collection(db, "questions");
+            console.log("Questions collection reference:", questionsCollection);
+            
+            const querySnapshot = await getDocs(questionsCollection);
+            console.log("Query snapshot received:", querySnapshot);
+            console.log("Query snapshot size:", querySnapshot.size);
+
+            // Array to store all statements
+            const questions = [];
+
+            // Loop through each document
+            querySnapshot.forEach((doc) => {
+                console.log("Document found:", doc.id, doc.data());
+                questions.push({ id: doc.id, ...doc.data() });
+            });
+
+            // Log or return the result
+            console.log("All Questions fetched:", questions);
+            console.log("Total questions found:", questions.length);
+            
+            // If no questions found in Firebase, return fallback questions
+            if (questions.length === 0) {
+                console.log("No questions in Firebase, using fallback questions");
+                const fallbackQuestions = [
+                    {
+                        id: "fallback-1",
+                        name: "Two Sum",
+                        statement: "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.",
+                        difficulty: "Easy",
+                        category: "Arrays"
+                    },
+                    {
+                        id: "fallback-2",
+                        name: "Reverse String",
+                        statement: "Write a function that reverses a string. The input string is given as an array of characters s.",
+                        difficulty: "Easy",
+                        category: "Strings"
+                    },
+                    {
+                        id: "fallback-3",
+                        name: "Valid Parentheses",
+                        statement: "Given a string s containing just the characters '(', ')', '{', '}', '[' and ']', determine if the input string is valid.",
+                        difficulty: "Easy",
+                        category: "Stack"
+                    }
+                ];
+                return fallbackQuestions;
+            }
+            
+            return questions;
+
+        } catch (error) {
+            console.error("Error fetching questions:", error);
+            console.error("Error details:", error.message, error.code);
+            
+            // Return fallback questions on error
+            console.log("Firebase error, using fallback questions");
+            const fallbackQuestions = [
+                {
+                    id: "fallback-1",
+                    name: "Two Sum",
+                    statement: "Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.",
+                    difficulty: "Easy",
+                    category: "Arrays"
+                },
+                {
+                    id: "fallback-2",
+                    name: "Reverse String",
+                    statement: "Write a function that reverses a string. The input string is given as an array of characters s.",
+                    difficulty: "Easy",
+                    category: "Strings"
+                },
+                {
+                    id: "fallback-3",
+                    name: "Valid Parentheses",
+                    statement: "Given a string s containing just the characters '(', ')', '{', '}', '[' and ']', determine if the input string is valid.",
+                    difficulty: "Easy",
+                    category: "Stack"
+                }
+            ];
+            
+            setOutput((prevOutput) => `${prevOutput}\n\n[Info]: Using fallback questions due to Firebase connection issue.`);
+            return fallbackQuestions;
+        }
+    };
+
+    // Stop Interview Function
+    const stopInterview = () => {
+        if (interviewInterval.current) {
+            clearInterval(interviewInterval.current);
+            setOutput((prevOutput) => `${prevOutput}\n\nInterview Stopped.`);
+            console.log("Interview stopped");
+        }
+    };
 
   
 
@@ -107,6 +202,7 @@ const MonacoEditor = () => {
     const runAIInterview = async () => {
         if (!selectedQuestion || !code) {
             console.warn("No question selected or no code written.");
+            setOutput((prevOutput) => `${prevOutput}\n\n[Warning]: No question selected or no code written.`);
             return;
         }
 
@@ -122,13 +218,14 @@ const MonacoEditor = () => {
       but in a few words , just talk directly to the candidate your words are being converted to speech`;
 
         try {
+            setOutput((prevOutput) => `${prevOutput}\n\n[Getting AI Feedback...]`);
             const result = await model.generateContent(prompt);
             const aiResponse = await result.response.text();
             setOutput((prevOutput) => `${prevOutput}\n\n[INTERVIEW FEEDBACK]:\n${aiResponse}`);
             console.log("AI Response: ", aiResponse);
         } catch (error) {
             console.error("Error calling GenAI:", error);
-            setOutput((prevOutput) => `${prevOutput}\n\n[Error]: Unable to get feedback.`);
+            setOutput((prevOutput) => `${prevOutput}\n\n[Error]: Unable to get feedback. ${error.message}`);
         }
     };
 
@@ -142,14 +239,47 @@ const MonacoEditor = () => {
 
 
 
-    // Fetch questions on component mount
+    // Monitor authentication state
     useEffect(() => {
-        const loadQuestions = async () => {
-            const fetchedQuestions = await fetchQuestions();
-            setQuestions(fetchedQuestions || []);
-        };
-        loadQuestions();
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            console.log("Auth state changed:", currentUser ? "User logged in" : "No user");
+            setUser(currentUser);
+            setAuthLoading(false);
+        });
+
+        return () => unsubscribe();
     }, []);
+
+    // Fetch questions on component mount - try regardless of auth status
+    useEffect(() => {
+        if (!authLoading) {
+            const loadQuestions = async () => {
+                console.log("useEffect: Starting to load questions...");
+                if (user) {
+                    console.log("Current user:", user.email);
+                }
+                setLoading(true);
+                setOutput("Loading questions...");
+                try {
+                    const fetchedQuestions = await fetchQuestions();
+                    console.log("useEffect: Questions fetched:", fetchedQuestions);
+                    setQuestions(fetchedQuestions || []);
+                    const message = fetchedQuestions?.length > 0 
+                        ? `Loaded ${fetchedQuestions.length} questions successfully.` 
+                        : "No questions found.";
+                    console.log("useEffect:", message);
+                    setOutput(message);
+                } catch (error) {
+                    console.error("useEffect: Failed to load questions:", error);
+                    setOutput("Failed to load questions. Using fallback questions.");
+                } finally {
+                    setLoading(false);
+                    console.log("useEffect: Loading completed");
+                }
+            };
+            loadQuestions();
+        }
+    }, [authLoading, user]);
 
     useEffect(() => {
         const savedCode = localStorage.getItem(`monaco-code-${language}`);
@@ -374,14 +504,28 @@ const MonacoEditor = () => {
                     disabled={loading}
                     style={{
                         padding: "8px 12px",
-                        backgroundColor: loading ? "#999" : "#007bff",
+                        backgroundColor: loading ? "#999" : "#28a745",
                         color: "#fff",
                         borderRadius: "5px",
                         border: "none",
                         cursor: loading ? "not-allowed" : "pointer",
                     }}
                 >
-                    {loading ? "Running..." : "Start Interview"}
+                    Start Interview
+                </button>
+                <button
+                    onClick={stopInterview}
+                    disabled={loading}
+                    style={{
+                        padding: "8px 12px",
+                        backgroundColor: loading ? "#999" : "#dc3545",
+                        color: "#fff",
+                        borderRadius: "5px",
+                        border: "none",
+                        cursor: loading ? "not-allowed" : "pointer",
+                    }}
+                >
+                    Stop Interview
                 </button>
             </div>
 

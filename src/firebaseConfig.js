@@ -4,7 +4,7 @@ import { getFirestore } from "firebase/firestore";
 
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  apiKey: "AIzaSyD9raam6InbA4sEyIlGvq1JH0sYU7L_8S0",
   authDomain: "ai-interviewer-ab969.firebaseapp.com",
   projectId: "ai-interviewer-ab969",
   storageBucket: "ai-interviewer-ab969.firebasestorage.app",

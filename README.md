@@ -12,6 +12,11 @@ yarn dev
 pnpm dev
 # or
 bun dev
+
+
+The env file needs :
+NEXT_PUBLIC_GOOGLE_API_KEY=
+NEXT_PUBLIC_JUDGE0_API_KEY=
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
